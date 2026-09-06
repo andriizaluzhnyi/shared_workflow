@@ -1,0 +1,191 @@
+name: Python CI
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version"
+        required: false
+        type: string
+        default: "3.13"
+
+      clients:
+        description: 'JSON array of clients, e.g. ["Client1", "Client2"]'
+        required: false
+        type: string
+        default: '[""]'
+
+      run-lint:
+        description: "Run flake8"
+        required: false
+        type: boolean
+        default: true
+
+      run-type-check:
+        description: "Run mypy"
+        required: false
+        type: boolean
+        default: true
+
+      run-tests:
+        description: "Run pytest"
+        required: false
+        type: boolean
+        default: true
+
+      coverage-threshold:
+        description: >
+          Minimum required test coverage percentage.
+          Leave empty ("") to fall back to `fail_under` from the
+          project's own pyproject.toml.
+        required: false
+        type: string
+        default: ""
+
+# ============================================================
+# Ensure only one CI run per branch/PR is active at a time.
+# Cancel the previous run when a new commit is pushed.
+# ============================================================
+concurrency:
+  group: python-ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ============================================================
+  # Code Quality
+  # ============================================================
+
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync \
+            --group test \
+            --group lint \
+            --group typing
+
+      - name: Get changed Python files
+        id: changed-files
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          files="$(
+            git diff \
+              --name-only \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}" \
+              -- '*.py'
+          )"
+
+          {
+            echo "files<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------------------------
+      # Flake8
+      # ----------------------------------------------------------
+
+      - name: Lint changed files
+        if: |
+          inputs.run-lint &&
+          github.event_name == 'pull_request' &&
+          steps.changed-files.outputs.files != ''
+        run: |
+          uv run flake8 \
+            --config=.flake8 \
+            ${{ steps.changed-files.outputs.files }}
+
+      - name: Lint all files
+        if: |
+          inputs.run-lint &&
+          github.event_name != 'pull_request'
+        run: |
+          uv run flake8 --config=.flake8 .
+
+      # ----------------------------------------------------------
+      # Mypy
+      # ----------------------------------------------------------
+
+      - name: Type check
+        if: inputs.run-type-check
+        run: |
+          uv run mypy \
+            --config-file=pyproject.toml .
+
+  # ============================================================
+  # Tests & Coverage
+  #
+  # Test paths and coverage source are NOT passed on the CLI.
+  # They must be configured per-project in pyproject.toml:
+  #   [tool.pytest.ini_options] testpaths
+  #   [tool.coverage.run]       source
+  #   [tool.coverage.report]    fail_under
+  # This keeps the workflow generic across projects.
+  # ============================================================
+
+  tests:
+    name: Tests (${{ matrix.client || 'default' }})
+    if: inputs.run-tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        client: ${{ fromJSON(inputs.clients) }}
+
+    env:
+      APP_ENV: testing
+      CLIENT: ${{ matrix.client }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync \
+            --group test \
+            --group lint \
+            --group typing
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --cov \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            ${{ inputs.coverage-threshold != '' && format('--cov-fail-under={0}', inputs.coverage-threshold) || '' }}
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.client || 'default' }}
+          path: coverage.xml
