@@ -124,10 +124,10 @@ jobs:
           inputs.run-lint &&
           github.event_name == 'pull_request' &&
           steps.changed-files.outputs.files != ''
+        env:
+          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
         run: |
-          uv run flake8 \
-            --config=.flake8 \
-            ${{ steps.changed-files.outputs.files }}
+          uv run flake8 --config=.flake8 $CHANGED_FILES
 
       - name: Lint all files
         if: |
