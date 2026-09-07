@@ -60,6 +60,8 @@ jobs:
 
   code-quality:
     name: Code Quality
+    # Job needed only if lint or type-check is actually enabled
+    if: inputs.run-lint || inputs.run-type-check
     runs-on: ubuntu-latest
 
     steps:
@@ -75,16 +77,28 @@ jobs:
           python-version: ${{ inputs.python-version }}
           enable-cache: true
 
+      # ----------------------------------------------------------
+      # Install only the dependency groups needed by the checks
+      # that are actually enabled for this run.
+      # ----------------------------------------------------------
       - name: Install dependencies
+        shell: bash
         run: |
-          uv sync \
-            --group test \
-            --group lint \
-            --group typing
+          args=""
+
+          if [ "${{ inputs.run-lint }}" = "true" ]; then
+            args="$args --group lint"
+          fi
+
+          if [ "${{ inputs.run-type-check }}" = "true" ]; then
+            args="$args --group typing"
+          fi
+
+          uv sync $args
 
       - name: Get changed Python files
         id: changed-files
-        if: github.event_name == 'pull_request'
+        if: github.event.pull_request != null
         shell: bash
         run: |
           files="$(
@@ -170,10 +184,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync \
-            --group test \
-            --group lint \
-            --group typing
+          uv sync --group test
 
       - name: Run tests with coverage
         run: |
