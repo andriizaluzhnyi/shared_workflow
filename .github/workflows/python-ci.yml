@@ -72,6 +72,11 @@ jobs:
     if: inputs.run-lint || inputs.run-type-check
     runs-on: ubuntu-latest
 
+    # The `secrets` context isn't available in a step's `if:`, only in
+    # job/step `env:`, `with:` and `run:`. So we surface it here first.
+    env:
+      HAS_GH_PAT: ${{ secrets.GH_PAT != '' }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -91,7 +96,7 @@ jobs:
       # pass a GH_PAT, so public-only callers are unaffected.
       # ----------------------------------------------------------
       - name: Configure Git Credentials
-        if: ${{ secrets.GH_PAT != '' }}
+        if: ${{ env.HAS_GH_PAT == 'true' }}
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
@@ -190,6 +195,9 @@ jobs:
     env:
       APP_ENV: testing
       CLIENT: ${{ matrix.client }}
+      # The `secrets` context isn't available in a step's `if:`, only in
+      # job/step `env:`, `with:` and `run:`. So we surface it here first.
+      HAS_GH_PAT: ${{ secrets.GH_PAT != '' }}
 
     steps:
       - name: Checkout
@@ -197,7 +205,7 @@ jobs:
 
       # See code-quality job above for why this is here.
       - name: Configure Git Credentials
-        if: ${{ secrets.GH_PAT != '' }}
+        if: ${{ env.HAS_GH_PAT == 'true' }}
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: |
