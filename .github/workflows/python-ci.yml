@@ -42,6 +42,14 @@ on:
         type: string
         default: ""
 
+    secrets:
+      GH_PAT:
+        description: >
+          GitHub PAT used to authenticate `git+https://...` dependencies
+          declared in the caller's pyproject.toml (e.g. private repos).
+          Leave unset if the project has no private git dependencies.
+        required: false
+
 # ============================================================
 # Ensure only one CI run per branch/PR is active at a time.
 # Cancel the previous run when a new commit is pushed.
@@ -76,6 +84,18 @@ jobs:
           version: "latest"
           python-version: ${{ inputs.python-version }}
           enable-cache: true
+
+      # ----------------------------------------------------------
+      # Authenticate git for private dependencies (git+https://...
+      # entries in pyproject.toml). Skipped when the caller doesn't
+      # pass a GH_PAT, so public-only callers are unaffected.
+      # ----------------------------------------------------------
+      - name: Configure Git Credentials
+        if: ${{ secrets.GH_PAT != '' }}
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
 
       # ----------------------------------------------------------
       # Install only the dependency groups needed by the checks
@@ -174,6 +194,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      # See code-quality job above for why this is here.
+      - name: Configure Git Credentials
+        if: ${{ secrets.GH_PAT != '' }}
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PAT}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v10
